@@ -2,7 +2,7 @@
   "SharedAssets": "*.*",
   "Title": "Ragdolls",
   "Type": "game",
-  "Org": "local",
+  "Org": "leaf",
   "Ident": "ragdolls",
   "Schema": 1,
   "HasAssets": true,
