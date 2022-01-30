@@ -228,7 +228,7 @@ namespace Ragdolls
 			DebugOverlay.Text( pelvis.MassCenter + pelvis.Rotation.Forward * 16f, $"{dot}" );
 			DebugOverlay.Line( pelvis.MassCenter, pelvis.MassCenter + pelvis.Rotation.Forward * 16f, Color.Green, 0f, false );
 
-			Balanced = true;// dot > 0.95f && distance < 4f;
+			Balanced = dot > 0.95f && distance < 4f;
 			DebugOverlay.Sphere( pelvis.MassCenter, 1f, Balanced ? Color.White : Color.Black, false );
 
 			if ( Balanced )
