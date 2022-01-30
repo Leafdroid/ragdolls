@@ -1,0 +1,14 @@
+{
+  "SharedAssets": "*.*",
+  "Title": "Ragdolls",
+  "Type": "game",
+  "Org": "local",
+  "Ident": "ragdolls",
+  "Schema": 1,
+  "HasAssets": true,
+  "AssetsPath": "",
+  "ResourcePaths": null,
+  "HasCode": true,
+  "CodePath": "code",
+  "RootNamespace": "Ragdolls"
+}
