@@ -6,6 +6,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Linq;
+using Sandbox.Joints;
 
 namespace Ragdolls
 {
@@ -22,7 +23,8 @@ namespace Ragdolls
 
 		public float Mass => PhysicsGroup.Mass;
 
-		private PhysicsJoint[] frictionJoints;
+		private SphericalJoint[] frictionJoints;
+
 
 		private void SetFriction( BodyPart bodyPart, float friction )
 		{
@@ -33,41 +35,37 @@ namespace Ragdolls
 				return;
 			}
 
-			var existingJoint = bodyPart == BodyPart.Pelvis ? null : frictionJoints[index];
-			if ( existingJoint != null )
-				existingJoint.Remove();
-
 			if ( bodyPart == BodyPart.Pelvis )
 			{
 				Log.Error( "Can't set friction to pelvis!" );
 				return;
 			}
 
-			frictionJoints[index] = null;
+			var existingJoint = frictionJoints[index];
+			if ( existingJoint.IsValid )
+			{
+				existingJoint.MotorFriction = friction;
+			}
+			else if ( friction != 0f )
+			{
+				var realJoint = PhysicsGroup.Joints.ElementAt( index );
 
-			if ( friction == 0f )
-				return;
-
-			var realJoint = PhysicsGroup.Joints.ElementAt( index );
-
-			var joint = PhysicsJoint.Spherical
-				.From( realJoint.Body1, realJoint.LocalAnchor1, realJoint.LocalJointFrame1 )
-				.To( realJoint.Body2, realJoint.LocalAnchor2, realJoint.LocalJointFrame2 )
-				.WithFriction( friction )
-				.Create();
-
-			frictionJoints[index] = joint;
-			return;
+				frictionJoints[index] = PhysicsJoint.Spherical
+					.From( realJoint.Body1, realJoint.LocalAnchor1, realJoint.LocalJointFrame1 )
+					.To( realJoint.Body2, realJoint.LocalAnchor2, realJoint.LocalJointFrame2 )
+					.WithFriction( friction )
+					.Create();
+			}
 		}
 
 		private void ResetFriction()
 		{
 			if ( frictionJoints != null )
-				foreach ( PhysicsJoint joint in frictionJoints )
-					if ( joint != null )
+				foreach ( SphericalJoint joint in frictionJoints )
+					if ( joint.IsValid )
 						joint.Remove();
 
-			frictionJoints = new PhysicsJoint[PhysicsGroup.Joints.Count()];
+			frictionJoints = new SphericalJoint[PhysicsGroup.Joints.Count()];
 		}
 
 		public override void Respawn()
@@ -249,8 +247,6 @@ namespace Ragdolls
 			DebugOverlay.Sphere( rightPos + rightMove, 3f, Color.Blue );
 			*/
 
-			GetBody( BodyPart.Pelvis ).ApplyForce( walkDir * Mass * 200 * walkTime );
-
 			GetBody( BodyPart.RightThigh ).PushTo( rightPos + rightMove, Mass * 400f * walkTime );
 			GetBody( BodyPart.LeftThigh ).PushTo( leftPos + leftMove, Mass * 400f * walkTime );
 		}
@@ -289,6 +285,14 @@ namespace Ragdolls
 				BalanceJoint.Remove();
 		}
 
+		private bool frozen = false;
+		private void RigorMortis()
+		{
+			float friction = (frozen = !frozen) ? 100000f : 100f;
+			for ( int i = 1; i < 16; i++ )
+				SetFriction( (BodyPart)i, friction );
+		}
+
 		float holdTime = 0f;
 		public override void Simulate( Client cl )
 		{
@@ -309,6 +313,13 @@ namespace Ragdolls
 				Reach( false );
 			else
 				Release( false );
+
+
+			Vector3 inputDir = (new Vector3( Input.Forward, Input.Left ) * Input.Rotation).WithZ( 0 ).Normal;
+			GetBody( BodyPart.Pelvis ).ApplyForce( inputDir * Mass * 150 );
+
+			if ( Input.Pressed( InputButton.Run ) )
+				RigorMortis();
 
 			/*
 			if ( Input.Down( InputButton.Run ) )

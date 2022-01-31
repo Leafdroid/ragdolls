@@ -31,7 +31,7 @@ namespace Ragdolls
 
 			Vector3 camPos = position + (Rotation.Backward * 10 * zoom + Rotation.Up * 0.5f * zoom);
 
-			Position = cameraTrace.FromTo( position, camPos ).Run().EndPos;
+			Position = camPos;// cameraTrace.FromTo( position, camPos ).Run().EndPos;
 
 			FieldOfView = 80;
 
