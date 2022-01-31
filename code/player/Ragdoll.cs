@@ -19,17 +19,56 @@ namespace Ragdolls
 
 		public bool Balanced { get; private set; }
 		public PhysicsJoint BalanceJoint { get; private set; }
-		public PhysicsBody BalanceBody { get; private set; }
-		private PhysicsBody CreateBalanceBody()
-		{
-			ModelEntity entity = new ModelEntity();
-			entity.SetupPhysicsFromSphere( PhysicsMotionType.Static, Vector3.Zero, 16f );
-			entity.PhysicsBody.MotionEnabled = false;
-			entity.PhysicsBody.CollisionEnabled = false;
-			return entity.PhysicsBody;
-		}
 
 		public float Mass => PhysicsGroup.Mass;
+
+		private PhysicsJoint[] frictionJoints;
+
+		private void SetFriction( BodyPart bodyPart, float friction )
+		{
+			int index = (int)bodyPart - 1;
+			if ( index > 14 )
+			{
+				Log.Error( "Can't set friction to invalid bodyparts!" );
+				return;
+			}
+
+			var existingJoint = bodyPart == BodyPart.Pelvis ? null : frictionJoints[index];
+			if ( existingJoint != null )
+				existingJoint.Remove();
+
+			if ( bodyPart == BodyPart.Pelvis )
+			{
+				Log.Error( "Can't set friction to pelvis!" );
+				return;
+			}
+
+			frictionJoints[index] = null;
+
+			if ( friction == 0f )
+				return;
+
+			var realJoint = PhysicsGroup.Joints.ElementAt( index );
+
+			var joint = PhysicsJoint.Spherical
+				.From( realJoint.Body1, realJoint.LocalAnchor1, realJoint.LocalJointFrame1 )
+				.To( realJoint.Body2, realJoint.LocalAnchor2, realJoint.LocalJointFrame2 )
+				.WithFriction( friction )
+				.Create();
+
+			frictionJoints[index] = joint;
+			return;
+		}
+
+		private void ResetFriction()
+		{
+			if ( frictionJoints != null )
+				foreach ( PhysicsJoint joint in frictionJoints )
+					if ( joint != null )
+						joint.Remove();
+
+			frictionJoints = new PhysicsJoint[PhysicsGroup.Joints.Count()];
+		}
 
 		public override void Respawn()
 		{
@@ -47,6 +86,11 @@ namespace Ragdolls
 			foreach ( PhysicsBody body in PhysicsGroup.Bodies )
 				body.Mass *= 150f;
 
+			ResetFriction();
+
+			for ( int i = 1; i < 16; i++ )
+				SetFriction( (BodyPart)i, 100f );
+
 			ClearCollisionLayers();
 			AddCollisionLayer( CollisionLayer.Player );
 
@@ -56,9 +100,6 @@ namespace Ragdolls
 
 			SetSpawnpoint();
 			ResetInterpolation();
-
-			if ( !BalanceBody.IsValid() )
-				BalanceBody = CreateBalanceBody();
 		}
 
 		private void SetSpawnpoint()
@@ -72,7 +113,7 @@ namespace Ragdolls
 
 		private void Stance()
 		{
-			Vector3 force = Vector3.Up * 1500f * PhysicsGroup.Mass;
+			Vector3 force = Vector3.Up * 550f * PhysicsGroup.Mass;
 
 			GetBody( BodyPart.Head ).ApplyForce( force * 0.2f );
 			GetBody( BodyPart.UpperSpine ).ApplyForce( force * 0.4f );
@@ -236,12 +277,9 @@ namespace Ragdolls
 				if ( BalanceJoint.IsValid() )
 					return;
 
-				var pos = BalanceBody.Transform.PointToLocal( pelvis.Position );
-				var rot = BalanceBody.Transform.RotationToLocal( pelvis.Rotation );
-
 				BalanceJoint = PhysicsJoint.Generic
 					.From( pelvis )
-					.To( BalanceBody, pos, rot )
+					.To( PhysicsWorld.WorldBody, pelvis.Position, pelvis.Rotation )
 					.WithAngularMotionX( JointMotion.Free )
 					.WithAngularMotionY( JointMotion.Locked )
 					.WithAngularMotionZ( JointMotion.Locked )
@@ -254,32 +292,13 @@ namespace Ragdolls
 		float holdTime = 0f;
 		public override void Simulate( Client cl )
 		{
+			//Stance();
 			Balance();
 
+			FaceForward();
 
 			if ( Input.Down( InputButton.Jump ) )
 				GetBody( BodyPart.Head ).ApplyForce( Vector3.Up * Mass * 750f );
-
-			if ( Input.Down( InputButton.Run ) )
-			{
-				GetBody( BodyPart.UpperSpine ).ApplyForce( Input.Rotation.Forward * Mass * 1250f );
-				GetBody( BodyPart.Pelvis ).ApplyForce( Input.Rotation.Backward * Mass * 1250f );
-			}
-
-			holdTime += Input.Down( InputButton.Forward ) ? Time.Delta : -Time.Delta;
-			holdTime = holdTime < 0f ? 0f : holdTime > 1f ? 1f : holdTime;
-
-			if ( Input.Down( InputButton.Forward ) )
-			{
-				var pelvis = GetBody( BodyPart.Pelvis );
-				pelvis.ApplyForceAt( pelvis.MassCenter + Input.Rotation.Right * 64f, Input.Rotation.Backward * Mass * 50f * holdTime );
-				pelvis.ApplyForceAt( pelvis.MassCenter + Input.Rotation.Left * 64f, Input.Rotation.Forward * Mass * 50f * holdTime );
-			}
-
-			/*
-			Stance();
-			FaceForward();
-
 
 			if ( Input.Down( InputButton.Attack1 ) )
 				Reach( true );
@@ -291,8 +310,25 @@ namespace Ragdolls
 			else
 				Release( false );
 
-			Walk();
+			/*
+			if ( Input.Down( InputButton.Run ) )
+			{
+				GetBody( BodyPart.UpperSpine ).ApplyForce( Input.Rotation.Forward * Mass * 1250f );
+				GetBody( BodyPart.Pelvis ).ApplyForce( Input.Rotation.Backward * Mass * 1250f );
+			}
+
+			holdTime += Input.Down( InputButton.Forward ) ? Time.Delta : -Time.Delta;
+			holdTime = holdTime < 0f ? 0f : holdTime > 1f ? 1f : holdTime;
+
+
+			
 			*/
+
+			//Stance();
+			//
+
+			//Walk();
+
 		}
 
 		protected override void OnDestroy()
@@ -302,8 +338,7 @@ namespace Ragdolls
 			if ( IsClient )
 				return;
 
-			if ( BalanceBody.IsValid() )
-				BalanceBody.Entity.Delete();
+			ResetFriction();
 
 			if ( BalanceJoint.IsValid() )
 				BalanceJoint.Remove();
