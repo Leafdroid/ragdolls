@@ -5,8 +5,8 @@ using System.Linq;
 
 namespace Ragdolls
 {
-	[Library( "trigger_respawn", Description = "Respawns entities" )]
-	public partial class TriggerRespawn : BaseTrigger
+	[Library( "trigger_reset", Description = "Resets entities" )]
+	public partial class TriggerReset : BaseTrigger
 	{
 		public override void Spawn()
 		{
@@ -18,16 +18,16 @@ namespace Ragdolls
 		{
 			base.OnTouchStart( toucher );
 
-			Respawn( toucher );
+			Reset( toucher );
 		}
 
-		private void Respawn( Entity ent )
+		private void Reset( Entity ent )
 		{
 			if ( ent is Ragdoll player )
 				player.Respawn();
 			else
 			{
-				Log.Error( $"No method for respawning this entity yet! ({ent})" );
+				Log.Error( $"No method for resetting this entity yet! ({ent})" );
 			}
 		}
 	}

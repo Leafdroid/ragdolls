@@ -1,13 +1,12 @@
 {
-  "SharedAssets": "*.*",
   "Title": "Ragdolls",
   "Type": "game",
-  "Org": "leaf",
+  "Org": "local",
   "Ident": "ragdolls",
   "Schema": 1,
   "HasAssets": true,
   "AssetsPath": "",
-  "ResourcePaths": null,
+  "ResourcePaths": [],
   "HasCode": true,
   "CodePath": "code",
   "RootNamespace": "Ragdolls"

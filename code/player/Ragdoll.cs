@@ -12,6 +12,8 @@ namespace Ragdolls
 {
 	public partial class Ragdoll : Player
 	{
+		public Clothing.Container Clothing = new();
+
 		public Entity LeftGrabEntity { get; private set; }
 		public PhysicsJoint LeftGrabJoint { get; private set; }
 
@@ -23,51 +25,24 @@ namespace Ragdolls
 
 		public float Mass => PhysicsGroup.Mass;
 
-		private SphericalJoint[] frictionJoints;
-
-
-		private void SetFriction( BodyPart bodyPart, float friction )
+		private TimeSince timeSinceGrab = 0f;
+		public static readonly SoundEvent GrabSound = new( "sounds/ragdoll/grab.vsnd" )
 		{
-			int index = (int)bodyPart - 1;
-			if ( index > 14 )
-			{
-				Log.Error( "Can't set friction to invalid bodyparts!" );
-				return;
-			}
+			DistanceMax = 512f,
+			Pitch = 2f,
+			Volume = 0.15f
 
-			if ( bodyPart == BodyPart.Pelvis )
-			{
-				Log.Error( "Can't set friction to pelvis!" );
-				return;
-			}
+		};
 
-			var existingJoint = frictionJoints[index];
-			if ( existingJoint.IsValid )
-			{
-				existingJoint.MotorFriction = friction;
-			}
-			else if ( friction != 0f )
-			{
-				var realJoint = PhysicsGroup.Joints.ElementAt( index );
-
-				frictionJoints[index] = PhysicsJoint.Spherical
-					.From( realJoint.Body1, realJoint.LocalAnchor1, realJoint.LocalJointFrame1 )
-					.To( realJoint.Body2, realJoint.LocalAnchor2, realJoint.LocalJointFrame2 )
-					.WithFriction( friction )
-					.Create();
-			}
-		}
-
-		private void ResetFriction()
+		private TimeSince timeSinceRelease = 0f;
+		public static readonly SoundEvent ReleaseSound = new( "sounds/ragdoll/release.vsnd" )
 		{
-			if ( frictionJoints != null )
-				foreach ( SphericalJoint joint in frictionJoints )
-					if ( joint.IsValid )
-						joint.Remove();
+			DistanceMax = 512f,
+			Pitch = 2f,
+			Volume = 0.15f
+		};
 
-			frictionJoints = new SphericalJoint[PhysicsGroup.Joints.Count()];
-		}
-
+		private PhysicsJoint worldWeld;
 		public override void Respawn()
 		{
 			Host.AssertServer();
@@ -81,13 +56,37 @@ namespace Ragdolls
 			EnableShadowCasting = true;
 			Transmit = TransmitType.Always;
 
+			if ( worldWeld.IsValid() )
+				worldWeld.Remove();
+
+			/*
+			var pelvis = GetBody( BodyPart.Pelvis );
+			worldWeld = PhysicsJoint.Generic
+					.From( pelvis )
+					.To( PhysicsWorld.WorldBody, Vector3.Up * 50f, pelvis.Rotation )
+					.WithAngularMotionLocked()
+					.WithLinearMotionLocked()
+					.Create();
+			*/
+
+			CreateAnimator();
+			SetInitialRotations();
+
+			if ( IsServer )
+				Clothing.LoadFromClient( Client );
+			Clothing.DressEntity( this );
+
 			foreach ( PhysicsBody body in PhysicsGroup.Bodies )
 				body.Mass *= 150f;
 
-			ResetFriction();
+			//GetBody( BodyPart.Pelvis ).MotionEnabled = false;
 
+			ResetJoints( 20f );
+
+			/*
 			for ( int i = 1; i < 16; i++ )
-				SetFriction( (BodyPart)i, 100f );
+				SetFriction( (BodyPart)i, 0f );
+			*/
 
 			ClearCollisionLayers();
 			AddCollisionLayer( CollisionLayer.Player );
@@ -105,57 +104,27 @@ namespace Ragdolls
 			Position = Vector3.Up * 32;
 
 			var spawnpoint = All.OfType<SpawnPoint>().OrderBy( x => Guid.NewGuid() ).FirstOrDefault();
-			if ( spawnpoint != null )
-				Position += spawnpoint.Position;
-		}
-
-		private void Stance()
-		{
-			Vector3 force = Vector3.Up * 550f * PhysicsGroup.Mass;
-
-			GetBody( BodyPart.Head ).ApplyForce( force * 0.2f );
-			GetBody( BodyPart.UpperSpine ).ApplyForce( force * 0.4f );
-			GetBody( BodyPart.LowerSpine ).ApplyForce( force * 0.4f );
-
-			GetBody( BodyPart.LeftFoot ).ApplyForce( -force * 0.35f );
-			GetBody( BodyPart.LeftShin ).ApplyForce( -force * 0.15f );
-
-			GetBody( BodyPart.RightFoot ).ApplyForce( -force * 0.35f );
-			GetBody( BodyPart.RightShin ).ApplyForce( -force * 0.15f );
-
-		}
-
-		private void FaceForward()
-		{
-			GetBody( BodyPart.Head ).RotateTowards( Input.Rotation, 50f * Mass );
-			GetBody( BodyPart.UpperSpine ).RotateTowards( Input.Rotation, 50f * Mass );
-
-			Vector3 forwardDirection = Input.Rotation.Forward.WithZ( 0 ).Normal;
-
-			GetBody( BodyPart.RightFoot ).RotateTowards( forwardDirection, 0.25f * Mass );
-			GetBody( BodyPart.LeftFoot ).RotateTowards( forwardDirection, 0.25f * Mass );
+			//if ( spawnpoint != null )
+			//Position += spawnpoint.Position;
 		}
 
 		private void Reach( bool leftHand )
 		{
-			var upperArm = GetBody( leftHand ? BodyPart.LeftUpperArm : BodyPart.RightUpperArm );
-			var forearm = GetBody( leftHand ? BodyPart.LeftForearm : BodyPart.RightForearm );
-			var hand = GetBody( leftHand ? BodyPart.LeftHand : BodyPart.RightHand );
+			var upperArm = leftHand ? BodyPart.LeftUpperArm : BodyPart.RightUpperArm;
+			var forearm = leftHand ? BodyPart.LeftForearm : BodyPart.RightForearm;
+			var hand = leftHand ? BodyPart.LeftHand : BodyPart.RightHand;
 
 			Vector3 reachDir = Input.Rotation.Forward;
 
-			float reachForce = 2000f * Mass;
+			float reachForce = 400f * Mass;
 
-			GetBody( BodyPart.UpperSpine ).ApplyForce( -reachDir * reachForce );
-			upperArm.ApplyForce( reachDir * reachForce * 0.5f );
-			forearm.ApplyForce( reachDir * reachForce * 0.45f );
-			hand.ApplyForce( reachDir * reachForce * 0.05f );
+			PushLimb( upperArm, reachDir * reachForce );
+			PushLimb( forearm, reachDir * reachForce );
+			PushLimb( hand, reachDir * reachForce );
 
-			hand.RotateTowards( reachDir, Mass );
-
-			Vector3 grabDirection = leftHand ? hand.Rotation.Up : hand.Rotation.Down;
-			Vector3 grabPosition = hand.MassCenter;// + grabDirection * 2f;
-
+			var handBody = GetBody( hand );
+			Vector3 grabDirection = leftHand ? handBody.Rotation.Up : handBody.Rotation.Down;
+			Vector3 grabPosition = handBody.MassCenter;
 
 			var grabbedBody = leftHand ? LeftGrabEntity : RightGrabEntity;
 			bool alreadyGrabbed = grabbedBody.IsValid();
@@ -174,6 +143,15 @@ namespace Ragdolls
 
 		private void Grab( bool leftHand, PhysicsBody grabBody )
 		{
+			using ( Prediction.Off() )
+			{
+				if ( timeSinceGrab > 0.1f )
+				{
+					PlaySound( GrabSound.Name );
+					timeSinceGrab = 0f;
+				}
+			}
+
 			var hand = GetBody( leftHand ? BodyPart.LeftHand : BodyPart.RightHand );
 
 			Vector3 localPos = grabBody.Transform.PointToLocal( hand.Position );
@@ -196,7 +174,18 @@ namespace Ragdolls
 		{
 			var joint = (leftHand ? LeftGrabJoint : RightGrabJoint);
 			if ( joint != null )
+			{
+				using ( Prediction.Off() )
+				{
+					if ( timeSinceRelease > 0.1f )
+					{
+						PlaySound( ReleaseSound.Name );
+						timeSinceRelease = 0f;
+					}
+				}
 				joint.Remove();
+			}
+
 
 			if ( leftHand )
 			{
@@ -213,50 +202,17 @@ namespace Ragdolls
 					RightGrabJoint = null;
 			}
 		}
-
-		float walkTime = 0f;
-		float walkCycle = 0f;
-		Vector3 walkDir;
-		private void Walk()
-		{
-			Vector3 inputDir = (new Vector3( Input.Forward, Input.Left ) * Input.Rotation).WithZ( 0 ).Normal;
-			walkDir = walkDir.LerpTo( inputDir, Time.Delta * 8f );
-
-			walkTime += (walkDir.Length > 0f) ? Time.Delta * 6f : -Time.Delta * 4f;
-			walkTime = walkTime < 0f ? 0f : walkTime > 1f ? 1f : walkTime;
-
-			walkCycle += Time.Delta * 2.5f;
-			walkCycle %= 2f;
-
-			float cosine = MathF.Cos( walkCycle * MathF.PI );
-			float sine = MathF.Sin( (walkCycle + 1.5f) * MathF.PI );
-
-			Vector3 leftMove = walkDir * cosine * walkTime * 16f;
-			Vector3 rightMove = walkDir * sine * walkTime * 16f;
-
-			var pelvis = GetBody( BodyPart.Pelvis );
-			Vector3 leftPos = pelvis.MassCenter + pelvis.Rotation.Up * 6f - pelvis.Rotation.Forward * 16f;
-			Vector3 rightPos = pelvis.MassCenter + pelvis.Rotation.Down * 6f - pelvis.Rotation.Forward * 16f;
-
-
-			/*
-			DebugOverlay.Line( leftPos, leftPos + leftMove, Color.Red );
-			DebugOverlay.Sphere( leftPos + leftMove, 3f, Color.Red );
-
-			DebugOverlay.Line( rightPos, rightPos + rightMove, Color.Blue );
-			DebugOverlay.Sphere( rightPos + rightMove, 3f, Color.Blue );
-			*/
-
-			GetBody( BodyPart.RightThigh ).PushTo( rightPos + rightMove, Mass * 400f * walkTime );
-			GetBody( BodyPart.LeftThigh ).PushTo( leftPos + leftMove, Mass * 400f * walkTime );
-		}
-
 		private void Balance()
 		{
 			var pelvis = GetBody( BodyPart.Pelvis );
 
 			Vector3 massDelta = (PhysicsGroup.MassCenter - pelvis.MassCenter).WithZ( 0f );
 			float distance = massDelta.Length;
+
+			PushLimb( BodyPart.RightHand, -massDelta * Mass * 100f );
+			PushLimb( BodyPart.UpperSpine, -massDelta * Mass * 300f );
+			PushLimb( BodyPart.Head, Vector3.Up * Mass * 500f );
+			PushLimb( BodyPart.LeftHand, -massDelta * Mass * 100f );
 
 			DebugOverlay.Line( pelvis.MassCenter, pelvis.MassCenter + massDelta, Color.Red, 0f, false );
 			DebugOverlay.Text( pelvis.MassCenter + massDelta, $"{distance}" );
@@ -285,24 +241,25 @@ namespace Ragdolls
 				BalanceJoint.Remove();
 		}
 
-		private bool frozen = false;
-		private void RigorMortis()
-		{
-			float friction = (frozen = !frozen) ? 100000f : 100f;
-			for ( int i = 1; i < 16; i++ )
-				SetFriction( (BodyPart)i, friction );
-		}
-
-		float holdTime = 0f;
 		public override void Simulate( Client cl )
 		{
+			//Animate( cl );
+			//Align();
+
+			Vector3 inputDir = (new Vector3( Input.Forward, Input.Left ) * Input.Rotation).Normal;
+			var pelvis = GetBody( BodyPart.Pelvis );
+			pelvis.ApplyForce( inputDir * Mass * 150 );
+
+			pelvis.ApplyForceAt( pelvis.MassCenter + pelvis.Rotation.Left * 16f, Input.Rotation.Forward * Mass * 100f );
+			pelvis.ApplyForceAt( pelvis.MassCenter + pelvis.Rotation.Right * 16f, -Input.Rotation.Forward * Mass * 100f );
 			//Stance();
-			Balance();
+			//Balance();
 
-			FaceForward();
-
+			/*
 			if ( Input.Down( InputButton.Jump ) )
 				GetBody( BodyPart.Head ).ApplyForce( Vector3.Up * Mass * 750f );
+			
+			*/
 
 			if ( Input.Down( InputButton.Attack1 ) )
 				Reach( true );
@@ -315,31 +272,6 @@ namespace Ragdolls
 				Release( false );
 
 
-			Vector3 inputDir = (new Vector3( Input.Forward, Input.Left ) * Input.Rotation).WithZ( 0 ).Normal;
-			GetBody( BodyPart.Pelvis ).ApplyForce( inputDir * Mass * 150 );
-
-			if ( Input.Pressed( InputButton.Run ) )
-				RigorMortis();
-
-			/*
-			if ( Input.Down( InputButton.Run ) )
-			{
-				GetBody( BodyPart.UpperSpine ).ApplyForce( Input.Rotation.Forward * Mass * 1250f );
-				GetBody( BodyPart.Pelvis ).ApplyForce( Input.Rotation.Backward * Mass * 1250f );
-			}
-
-			holdTime += Input.Down( InputButton.Forward ) ? Time.Delta : -Time.Delta;
-			holdTime = holdTime < 0f ? 0f : holdTime > 1f ? 1f : holdTime;
-
-
-			
-			*/
-
-			//Stance();
-			//
-
-			//Walk();
-
 		}
 
 		protected override void OnDestroy()
@@ -349,7 +281,11 @@ namespace Ragdolls
 			if ( IsClient )
 				return;
 
-			ResetFriction();
+			if ( Animator.IsValid() )
+				Animator.Delete();
+
+			foreach ( SphericalJoint joint in motorJoints )
+				joint.Remove();
 
 			if ( BalanceJoint.IsValid() )
 				BalanceJoint.Remove();
@@ -421,51 +357,52 @@ namespace Ragdolls
 				player.Kill( false );
 		}
 
-		[ServerCmd( "SpawnEntity" )]
-		public static void SpawnEntity( string modelName )
+		public void PushLimb( BodyPart bodyPart, Vector3 force )
 		{
-			if ( ConsoleSystem.Caller == null || ConsoleSystem.Caller.Pawn is not Ragdoll player )
+			int index = (int)bodyPart - 1;
+			if ( bodyPart == BodyPart.Pelvis || index > 14 )
 				return;
 
-			Model model = Model.Load( modelName );
-			if ( model == null )
+			PhysicsBody body = GetBody( bodyPart );
+
+			var joint = PhysicsGroup.GetJoint( index );
+			PhysicsBody parentBody = joint.Body1;
+
+			if ( body == null || parentBody == null )
+				return;
+
+			body.ApplyForce( force );
+			parentBody.ApplyForce( -force );
+			//parentBody.ApplyForceAt( joint.Anchor1, -direction * force );
+
+			/*
+			DebugOverlay.Sphere( body.MassCenter, 1f, Color.White, false );
+			DebugOverlay.Line( body.MassCenter, joint.Anchor1, Color.White, 0f, false );
+			DebugOverlay.Line( joint.Anchor1, parentBody.MassCenter, Color.Gray, 0f, false );
+			DebugOverlay.Sphere( joint.Anchor1, 1f, Color.Gray, false );
+			*/
+		}
+
+		[ServerCmd]
+		public static void BreakFingers()
+		{
+			if ( ConsoleSystem.Caller == null || ConsoleSystem.Caller.Pawn is not Player player )
+				return;
+
+			AnimEntity victim = new AnimEntity( "models/citizen/citizen.vmdl" );
+			victim.SetupPhysicsFromModel( PhysicsMotionType.Dynamic );
+			victim.Position = player.Position;
+
+			for ( int i = 0; i < victim.BoneCount; i++ )
 			{
-				Log.Error( "Model doesn't exist!" );
-				return;
+				if ( !victim.GetBoneName( i ).Contains( "finger" ) )
+					continue;
+
+				Transform oldTransform = victim.GetBoneTransform( i );
+				Rotation twisty = Rotation.FromPitch( Rand.Float( -60f, 60f ) );
+				Transform transform = new Transform( oldTransform.Position, oldTransform.Rotation * twisty );
+				victim.SetBone( i, transform );
 			}
-
-			Vector3 spawnPos = player.Position + Vector3.Up * 64;
-
-			ModelEntity newEntity = new ModelEntity( modelName );
-			newEntity.SetupPhysicsFromModel( PhysicsMotionType.Dynamic );
-			newEntity.Position = spawnPos;
-		}
-	}
-
-	public static class PhysicsBodyExtension
-	{
-		public static void RotateTowards( this PhysicsBody body, Rotation rotation, float force )
-		{
-			body.ApplyForceAt( body.MassCenter + body.Rotation.Left * 64, rotation.Forward * force );
-			body.ApplyForceAt( body.MassCenter + body.Rotation.Right * 64, rotation.Backward * force );
-		}
-
-		public static void RotateTowards( this PhysicsBody body, Vector3 direction, float force )
-		{
-			body.ApplyForceAt( body.MassCenter + body.Rotation.Left * 64, direction * force );
-			body.ApplyForceAt( body.MassCenter + body.Rotation.Right * 64, -direction * force );
-		}
-
-		public static void PushTo( this PhysicsBody body, Vector3 position, float force, float fallOff = 16f )
-		{
-			Vector3 delta = position - body.MassCenter;
-			float distance = delta.Length;
-			Vector3 direction = delta / distance;
-
-			float pushForce = force * distance / fallOff;
-			pushForce = pushForce < 0f ? 0f : pushForce > force ? force : pushForce;
-
-			body.ApplyForce( direction * pushForce );
 		}
 	}
 }

@@ -5,7 +5,7 @@ namespace Ragdolls
 {
 	public class RagdollCamera : Camera
 	{
-		private int zoom = 20;
+		private int zoom = 10;
 
 		private const int minZoom = 10;
 		private const int maxZoom = 30;
@@ -24,14 +24,14 @@ namespace Ragdolls
 			zoom = zoom.Clamp( minZoom, maxZoom );
 
 
-			//Transform bone = player.GetBoneTransform( 0 );
+			Transform bone = player.GetBoneTransform( 0 );
 			Vector3 position = player.Position + Vector3.Up * 16f;
 
 			Rotation = Input.Rotation;
 
 			Vector3 camPos = position + (Rotation.Backward * 10 * zoom + Rotation.Up * 0.5f * zoom);
 
-			Position = camPos;// cameraTrace.FromTo( position, camPos ).Run().EndPos;
+			Position = camPos; // cameraTrace.FromTo( position, camPos ).Run().EndPos;
 
 			FieldOfView = 80;
 
