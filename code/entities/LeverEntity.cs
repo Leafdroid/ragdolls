@@ -135,6 +135,8 @@ namespace Ragdolls
 				leverJoint.MotorTargetAngle = DoubleSided ? 0f : leverJoint.LimitRange.y;
 				leverJoint.MotorMode = PhysicsJointMotorMode.Position;
 			}
+
+			FireOutput( "OnNeutral", null, 0f );
 		}
 
 		[Event.Tick]
@@ -175,7 +177,7 @@ namespace Ragdolls
 
 			string output = $"{(repeated ? "While" : "On")}{state}";
 
-			FireOutput( output, activator );
+			FireOutput( output, activator, pullFraction * PullAmountMultiplier );
 			FireOutput( "PullAmount", activator, pullFraction * PullAmountMultiplier );
 		}
 	}
