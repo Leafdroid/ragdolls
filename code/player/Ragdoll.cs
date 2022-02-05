@@ -42,10 +42,11 @@ namespace Ragdolls
 			Volume = 0.15f
 		};
 
-		private PhysicsJoint worldWeld;
 		public override void Respawn()
 		{
 			Host.AssertServer();
+
+			SetSpawnpoint();
 
 			SetModel( "models/citizen/citizen.vmdl" );
 
@@ -56,21 +57,8 @@ namespace Ragdolls
 			EnableShadowCasting = true;
 			Transmit = TransmitType.Always;
 
-			if ( worldWeld.IsValid() )
-				worldWeld.Remove();
-
-			/*
-			var pelvis = GetBody( BodyPart.Pelvis );
-			worldWeld = PhysicsJoint.Generic
-					.From( pelvis )
-					.To( PhysicsWorld.WorldBody, Vector3.Up * 50f, pelvis.Rotation )
-					.WithAngularMotionLocked()
-					.WithLinearMotionLocked()
-					.Create();
-			*/
-
 			CreateAnimator();
-			SetInitialRotations();
+			SetBoneIndices();
 
 			if ( IsServer )
 				Clothing.LoadFromClient( Client );
@@ -79,14 +67,7 @@ namespace Ragdolls
 			foreach ( PhysicsBody body in PhysicsGroup.Bodies )
 				body.Mass *= 150f;
 
-			//GetBody( BodyPart.Pelvis ).MotionEnabled = false;
-
-			ResetJoints( 20f );
-
-			/*
-			for ( int i = 1; i < 16; i++ )
-				SetFriction( (BodyPart)i, 0f );
-			*/
+			ResetJoints();
 
 			ClearCollisionLayers();
 			AddCollisionLayer( CollisionLayer.Player );
@@ -95,17 +76,19 @@ namespace Ragdolls
 
 			Velocity = Vector3.Zero;
 
-			SetSpawnpoint();
 			ResetInterpolation();
 		}
 
 		private void SetSpawnpoint()
 		{
-			Position = Vector3.Up * 32;
+			Position = Vector3.Up * 46f + Vector3.Right * 128f * Client.Id;
 
 			var spawnpoint = All.OfType<SpawnPoint>().OrderBy( x => Guid.NewGuid() ).FirstOrDefault();
-			//if ( spawnpoint != null )
-			//Position += spawnpoint.Position;
+			if ( spawnpoint != null )
+			{
+				Position += spawnpoint.Position;
+				Rotation = spawnpoint.Rotation;
+			}
 		}
 
 		private void Reach( bool leftHand )
@@ -150,6 +133,14 @@ namespace Ragdolls
 					PlaySound( GrabSound.Name );
 					timeSinceGrab = 0f;
 				}
+			}
+
+			// special interactions with entities
+			switch ( grabBody.Entity )
+			{
+				case ButtonEntity button:
+					button.OnUse( this );
+					break;
 			}
 
 			var hand = GetBody( leftHand ? BodyPart.LeftHand : BodyPart.RightHand );
@@ -243,15 +234,17 @@ namespace Ragdolls
 
 		public override void Simulate( Client cl )
 		{
-			//Animate( cl );
-			//Align();
+			Animate( cl );
+			Align();
+
 
 			Vector3 inputDir = (new Vector3( Input.Forward, Input.Left ) * Input.Rotation).Normal;
 			var pelvis = GetBody( BodyPart.Pelvis );
 			pelvis.ApplyForce( inputDir * Mass * 150 );
 
-			pelvis.ApplyForceAt( pelvis.MassCenter + pelvis.Rotation.Left * 16f, Input.Rotation.Forward * Mass * 100f );
-			pelvis.ApplyForceAt( pelvis.MassCenter + pelvis.Rotation.Right * 16f, -Input.Rotation.Forward * Mass * 100f );
+			//pelvis.ApplyForceAt( pelvis.MassCenter + pelvis.Rotation.Left * 16f, Input.Rotation.Forward * Mass * 100f );
+			//pelvis.ApplyForceAt( pelvis.MassCenter + pelvis.Rotation.Right * 16f, -Input.Rotation.Forward * Mass * 100f );
+
 			//Stance();
 			//Balance();
 
