@@ -87,7 +87,6 @@ namespace Ragdolls
 		private float pullFraction { get; set; } = 0f;
 		private LeverState state = LeverState.Neutral;
 		private RevoluteJoint leverJoint;
-		private WeldJoint parentJoint;
 
 		public override void Spawn()
 		{
@@ -106,6 +105,9 @@ namespace Ragdolls
 				return;
 			}
 
+			for ( int i = 1; i < PhysicsGroup.BodyCount; i++ )
+				PhysicsGroup.GetBody( i ).GravityEnabled = false;
+
 			if ( Parent == null )
 				baseBody.MotionEnabled = false;
 			else
@@ -119,7 +121,7 @@ namespace Ragdolls
 					Vector3 localPos = parentBody.Transform.PointToLocal( baseBody.Position );
 					Rotation localRot = parentBody.Transform.RotationToLocal( baseBody.Rotation );
 
-					parentJoint = PhysicsJoint.Weld
+					PhysicsJoint.Weld
 					.From( baseBody )
 					.To( parentBody, localPos, localRot )
 					.Create();
